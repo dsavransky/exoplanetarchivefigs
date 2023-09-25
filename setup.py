@@ -19,7 +19,7 @@ else:
 descstr = "Generate figures based on data from NASA's Exoplanet Archive"
 
 setuptools.setup(
-    name="MeanStars",
+    name="exoplanetarchivefigs",
     version=version_string,
     author="Dmitry Savransky",
     author_email="ds264@cornell.edu",
@@ -28,7 +28,7 @@ setuptools.setup(
     long_description_content_type="text/markdown",
     url="https://github.com/dsavransky/exoplanetarchivefigs",
     packages=["exoplanetarchivefigs"],
-    install_requires=["EXOSIMS", "scipy", "numpy", "astropy"],
+    install_requires=["EXOSIMS", "pandas", "numpy",  "scipy", "astropy"],
     classifiers=[
         "Programming Language :: Python :: 3.9",
         "Programming Language :: Python :: 3.10",

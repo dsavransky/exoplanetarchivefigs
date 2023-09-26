@@ -28,7 +28,7 @@ setuptools.setup(
     long_description_content_type="text/markdown",
     url="https://github.com/dsavransky/exoplanetarchivefigs",
     packages=["exoplanetarchivefigs"],
-    install_requires=["EXOSIMS", "pandas", "numpy",  "scipy", "astropy"],
+    install_requires=["EXOSIMS", "matplotlib", "pandas", "numpy", "astropy"],
     classifiers=[
         "Programming Language :: Python :: 3.9",
         "Programming Language :: Python :: 3.10",

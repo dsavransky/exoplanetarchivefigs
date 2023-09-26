@@ -4,10 +4,31 @@ import warnings
 import re
 import matplotlib.pyplot as plt
 import pandas
+import astropy.units as u
+import astropy.constants as const
 from EXOSIMS.util.getExoplanetArchive import (
     getExoplanetArchivePSCP,
     cacheExoplanetArchiveQuery,
 )
+from EXOSIMS.PlanetPhysicalModel.ForecasterMod import ForecasterMod
+
+
+def p2sma(mu: u.Quantity, T: u.Quantity):
+    """Compute semi-major axis from period and gravitational parameter
+
+    Args:
+        mu (~astropy.units.Quantity(np.ndarray(float))):
+            Gravitational parameters
+        T (~astropy.units.Quantity(np.ndarray(float))):
+            Orbital periods
+
+    Returns:
+        ~astropy.units.Quantity(np.ndarray(float)):
+            semi-major axes
+
+    """
+
+    return ((mu * T**2 / (4 * np.pi**2)) ** (1 / 3.0)).to("AU")
 
 
 def get_data(min_num_discoveries: int = 30, forceNew: bool = False) -> pandas.DataFrame:
@@ -92,8 +113,12 @@ def mass_sma_plot(
     fig: matplotlib.figure.Figure = None,
     earthmassonly: bool = False,
     title: str = None,
-    syms: str = None,
-):
+    photom: bool = False,
+    syms: str = "osD^pv<vh",
+    clrs: list = ["blue", "silver", "crimson", "orange", "darkmagenta"],
+    xlim: list = [1e-2, 1e3],
+    ylim: list = [1e-4, 40],
+) -> None:
     """
     Generate mass vs sma planet plot
 
@@ -106,8 +131,27 @@ def mass_sma_plot(
         earthmassonly (bool):
             If True, plot only Earth masses. Otherwise show both Earth and Jovian
             masses. Defaults False.
+        title (str, optional):
+            Plot title.  Defaults to None.
+        photom (bool):
+            If True, shade only those planets with some photometric measurements and
+            leave the rest transparent. Defaults False
+        syms (str):
+            Plot symbols to use.  If fewer symbols are given than there are methods in
+            the data set, the sequence is repeated.
+        clrs (list(str)):
+            List of named colors to use.  If fewer colors are given than there are
+            methods in the data set, the sequence is repeated.
+        xlim (list(float)):
+            [min, max] x axis values in AU.  Defaults to [1e-2, 1e3]
+        ylim (list(float)):
+            [min, max] y axis values in Jovian masses. Defaults to [1e-4, 40]
 
     """
+
+    # define some helper methods
+    fmod = ForecasterMod()
+    MfromR = fmod.calc_mass_from_radius
 
     # create or clear the figure and axes
     if fig is None:
@@ -119,52 +163,131 @@ def mass_sma_plot(
     # fill figure with axis
     fig.subplots_adjust(bottom=0.15, top=0.95, left=0.125, right=0.9)
 
-
+    # figure out distinct methods and set zorder by increasing discovery count
     methods, methods_counts = np.unique(
         data["discoverymethod"].values, return_counts=True
     )
-    methodorder = np.argsort(methods_counts)[::-1]
+    methodorder = np.zeros(len(methods), dtype=int)
+    methodorder[np.argsort(methods_counts)[::-1]] = np.arange(len(methods))
 
-    syms = "os^pvD<"
+    # ensure that you have enough symbols/colors for plotting
+    if len(syms) < len(methods):
+        syms = "".join([syms] * int(np.ceil(len(methods) / len(syms))))
+    if len(clrs) < len(methods):
+        clrs = list(np.hstack([clrs] * int(np.ceil(len(methods) / len(clrs)))))
 
+    # define solar system planets
+    # data from https://ssd.jpl.nasa.gov/astro_par.html
+    planetnames = [
+        "Mercury",
+        "Venus",
+        "Earth",
+        "Mars",
+        "Jupiter",
+        "Saturn",
+        "Uranus",
+        "Neptune",
+        "Pluto",  # yes, its here. deal with it
+    ]
+    GMs = [
+        22031.868551,  # Me
+        324858.592000,  # v
+        398600.435507,  # E
+        42828.375816,  # Ma
+        126712764.100000,  # J
+        37940584.841800,  # S
+        5794556.400000,  # U
+        6836527.100580,  # N
+        975.500000,  # P
+    ]  # km^3/s^2
+    Ms = np.array(GMs) / GMs[4]  # Jupiter Masses
+    Mse = np.array(GMs) / GMs[2]  # Earth Masses
 
-    for m, s, c, o in zip(methods, syms, cmap, methodorder):
+    # semi-major axes from: https://ssd.jpl.nasa.gov/planets/approx_pos.html
+    smas = np.array(
+        [
+            0.38709927,  # Me
+            0.72333566,  # V
+            1.00000261,  # E
+            1.52371034,  # Ma
+            5.20288700,  # J
+            9.53667594,  # S
+            19.18916464,  # U
+            30.06992276,  # N
+            39.482,  # P
+        ]
+    )  # AU
+
+    # pick an offset for each label
+    offs = [
+        (5, -5),  # Me
+        (-45, -15),  # V
+        (0, -17),  # E
+        (4, -4),  # Ma
+        (6, -4),  # J
+        (5, -2),  # S
+        (-5, -16),  # U
+        (-5, 5),  # N
+        (-5, 5),  # P
+    ]
+
+    solid_alpha = 0.95 if photom else 0.75
+
+    # loop by method and plot
+    for m, s, c, o in zip(methods, syms, clrs, methodorder):
         inds = data["discoverymethod"] == m
         mj = data.loc[inds, "pl_bmassj"]
         sma = data.loc[inds, "pl_orbsmax"]
+        # determine which points should be plotted as solid based on phot input
+        make_solid = data.loc[inds, "has_photometry"]
+        if not photom:
+            make_solid.loc[~make_solid] = True
 
         # fill in missing masses from radii
-        radj = data.iloc[mj.index[mj.isna()]]["pl_radj"]
+        radj = data.loc[mj.index[mj.isna()]]["pl_radj"]
         mfills = MfromR(radj.values * u.R_jup).to(u.M_jup).value
         mj.loc[mj.isna()] = mfills
 
         # fill in missing smas from period
-        orbper = data.iloc[sma.index[sma.isna()]]["pl_orbper"]
-        stmass = data.iloc[sma.index[sma.isna()]]["st_mass"]
+        orbper = data.loc[sma.index[sma.isna()]]["pl_orbper"]
+        stmass = data.loc[sma.index[sma.isna()]]["st_mass"]
 
         GMs = const.G * (stmass.values * u.solMass)  # units of solar mass
         T = orbper.values * u.day
         smafill = p2sma(GMs, T)
         sma.loc[sma.isna()] = smafill.value
 
+        # if only plotting earth masses, scale accordingly
         if earthmassonly:
             mj /= Ms[2]
+
+        # plot solid symbols
         ax.scatter(
-            sma,
-            mj,
+            sma.loc[make_solid],
+            mj.loc[make_solid],
             marker=s,
             s=60,
             zorder=o,
             facecolors=c,
             edgecolors="k",
-            alpha=0.75,
+            alpha=solid_alpha,
             label=m,
         )
+        # plot transparent symbols
+        ax.scatter(
+            sma.loc[~make_solid],
+            mj.loc[~make_solid],
+            marker=s,
+            s=60,
+            zorder=-1,
+            facecolors=c,
+            edgecolors="k",
+            alpha=0.1,
+            label=None,
+        )
 
-    if earthmassonly:
-        tmp = Mse
-    else:
-        tmp = Ms
+    # now plot the solar system planets
+    tmp = Mse if earthmassonly else Ms
     ax.scatter(
         smas,
         tmp,
@@ -175,31 +298,31 @@ def mass_sma_plot(
         alpha=1,
         zorder=methodorder.max(),
     )
-    for a, m, n, ha, off in zip(smas, tmp, planetnames, has, offs):
-        ax.annotate(n, (a, m), ha=ha, xytext=off, textcoords="offset points")
+    for a, m, n, off in zip(smas, tmp, planetnames, offs):
+        ax.annotate(n, (a, m), ha="left", xytext=off, textcoords="offset points")
 
+    # let's log scale and trim
     ax.set_xscale("log")
     ax.set_yscale("log")
-    ax.set_xlim([1e-2, 1e3])
+    ax.set_xlim(xlim)
     ax.set_xlabel("Semi-Major Axis (AU)")
 
+    # label y axis and add another one, as needed
     if earthmassonly:
-        ax.set_ylim(np.array([1e-4, 40]) / Ms[2])
+        ax.set_ylim(np.array(ylim) / Ms[2])
         ax.set_ylabel("(Minimum) Mass (Earth Masses)")
+        plt.subplots_adjust(right=0.95)
     else:
-        ax.set_ylim([1e-4, 40])
+        ax.set_ylim(ylim)
         ax.set_ylabel("(Minimum) Mass (M$_J$)")
-    ax.legend(loc="lower right", scatterpoints=1, fancybox=True, prop={"size": 14})
-
-    if not earthmassonly:
         ax2 = ax.twinx()
         ax2.set_yscale("log")
         ax2.set_ylim(np.array(ax.get_ylim()) / Ms[2])
-        ax2.set_ylabel("M$_\oplus$")
+        ax2.set_ylabel(r"M$_\oplus$")
         plt.subplots_adjust(right=0.88)
-    else:
-        plt.subplots_adjust(right=0.95)
 
-    if title:
+    ax.legend(loc="lower right", scatterpoints=1, fancybox=True, prop={"size": 14})
+
+    if title is not None:
         plt.title(title)
         plt.subplots_adjust(top=0.93)

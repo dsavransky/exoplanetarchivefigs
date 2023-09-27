@@ -24,6 +24,9 @@ The method `get_data` downloads and caches (or reads from an existing cache) all
 
 Detection methods with fewer than `min_num_discoveries` (default value = 30) all get lumped into a single 'Other' category.  For direclty imaged planets, it is assumed that some photometric information is available.  Similalry, anything with any transmission or emission spectra is similarly assumed to have been photometrically characterized. This information is stored in the boolean column `has_photometry`. For objects found via imaging, the year of the first photometric characterization is taken to be the discovery year.  For objects with spectral information found by other means,  the year of the first photometric characterization is taken to be the year of the earliest publication associated with the planet in the spectra table.  This information is stored in the column `first_photometry_year`.  See the notebook for examples on filtering by these columns.
 
+## Data Anomalies 
+
+The Exoplanet Archive staff do a tremendous job in curating and updating their data, but no dataset is perfect, and there will inevitably be errors/anomalies in the data set.  When you find these, do the entire community a favor and report them to IPAC by submitting a helpdesk ticket, here: https://exoplanetarchive.ipac.caltech.edu/cgi-bin/Helpdesk/nph-genTicketForm
 
 ## Crediting
 
